@@ -16,6 +16,7 @@ type ProvidedMeasureBuilder = ProviderImplementation.ProvidedTypes.ProvidedMeasu
 type ProvidedAssembly = ProviderImplementation.ProvidedTypes.ProvidedAssembly
 type ProvidedTypeDefinition = ProviderImplementation.ProvidedTypes.ProvidedTypeDefinition
 
+/// A base type providing default implementations of type provider functionality.
 [<AbstractClass>]
 type FunctionalProvider(config,
         build: Assembly -> list<ProvidedTypeDefinition>,
@@ -34,34 +35,40 @@ type FunctionalProvider(config,
         |> List.groupBy (fun ty -> ty.Namespace)
         |> List.iter this.AddNamespace
 
+/// A set of static parameters for a type provider.
 type ProvidedStaticParameters<'T> =
     { Parameters: ProvidedStaticParameter list
       Extract: obj list -> 'T * obj list }
 
 module ProvidedStaticParameters =
 
+    /// Create a mandatory static parameter with the given name.
     let mandatory<'T> name =
         { Parameters = [ ProvidedStaticParameter(name, typeof<'T>) ]
           Extract = function
             | :? 'T as x :: rest -> x, rest
             | args -> failwithf "Invalid args: %A" args }
 
+    /// Create an optional static parameter with the given name and default value.
     let optional<'T> name (defaultValue: 'T) =
         { Parameters = [ ProvidedStaticParameter(name, typeof<'T>, box defaultValue) ]
           Extract = function
             | :? 'T as x :: rest -> x, rest
             | args -> failwithf "Invalid args: %A" args }
         
+    /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
         { Parameters = []
           Extract = fun args -> x, args }
         
+    /// Map the value extracted from a set of static parameters.
     let map<'T, 'U> (f: 'T -> 'U) (p: ProvidedStaticParameters<'T>) =
         { Parameters = p.Parameters
           Extract = fun args ->
             let x, rest = p.Extract args
             f x, rest }
 
+    /// Combine two sets of static parameters.
     let map2<'T, 'U, 'V>
             (f: 'T -> 'U -> 'V)
             (p1: ProvidedStaticParameters<'T>)
@@ -73,6 +80,7 @@ module ProvidedStaticParameters =
             let x2, rest = p2.Extract rest
             f x1 x2, rest }
 
+/// A set of parameters for a provided method.
 type ProvidedParameters<'T> =
     { Parameters: ProvidedParameter list
       Extract: Expr list -> 'T * Expr list }
@@ -114,17 +122,20 @@ module ProvidedParameters =
           Extract = function
               | e :: rest -> e, rest
               | args -> failwithf "Invalid args: %A" args }
-        
+
+    /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
         { Parameters = []
           Extract = fun args -> x, args }
-        
+
+    /// Map the value extracted from a set of static parameters.
     let map<'T, 'U> (f: 'T -> 'U) (p: ProvidedParameters<'T>) =
         { Parameters = p.Parameters
           Extract = fun args ->
             let x, rest = p.Extract args
             f x, rest }
 
+    /// Combine two sets of static parameters.
     let map2<'T, 'U, 'V>
             (f: 'T -> 'U -> 'V)
             (p1: ProvidedParameters<'T>)
@@ -146,6 +157,7 @@ module ProvidedParameters =
         member _.Return(x) =
             ret x
 
+    /// Computation expression that creates a method body by binding its arguments with let!...and!.
     let bind = ParametersBuilder()
 
 module ProvidedTypeDefinition =
@@ -175,26 +187,32 @@ module ProvidedTypeDefinition =
                     build ty)
                 ty
 
+    /// Computation expression that adds static parameters to a ProvidedTypeDefinition by binding them with let!...and!.
     let addStaticParameters = AddStaticParametersBuilder()
 
+    /// Add a set of members to a ProvidedTypeDefinition.
     let addMembers (items: list<#MemberInfo>) (ty: ProvidedTypeDefinition) =
         ty.AddMembers items
         ty
 
+    /// Add a method, property, nested type or other member to a ProvidedTypeDefinition.
     let addMember (items: MemberInfo) (ty: ProvidedTypeDefinition) =
         ty.AddMember items
         ty
 
+    /// Add a set of members to a ProvidedTypeDefinition, delaying computation of the members until required by the compilation context.
     let addMembersDelayed (items: unit -> list<#MemberInfo>) (ty: ProvidedTypeDefinition) =
         ty.AddMembersDelayed items
         ty
 
+    /// Add a member to a ProvidedTypeDefinition, delaying computation of the members until required by the compilation context.
     let addMemberDelayed (items: unit -> #MemberInfo) (ty: ProvidedTypeDefinition) =
         ty.AddMemberDelayed items
         ty
 
 module ProvidedField =
 
+    /// Create a new provided literal field. It is not initially associated with any specific provided type definition.
     let literal<'T> (name: string) (value: 'T) =
         ProvidedField.Literal(name, typeof<'T>, box value)
 
@@ -216,16 +234,21 @@ module ProvidedMethod =
 
     type ConstructorBuilder() =
         inherit ProvidedParameters.ParametersBuilder()
-        
+
         member _.Run(p: ProvidedParameters<Expr<unit>>) =
             ProvidedConstructor(p.Parameters, fun args -> p.Extract args |> fst :> Expr)
 
+    /// Computation expression that creates an instance method by binding its arguments with let!...and!.
     let dynInstanceMethod returnType name = MethodBuilder(name, returnType, false)
 
+    /// Computation expression that creates an instance method by binding its arguments with let!...and!.
     let instanceMethod<'ReturnType> name = MethodBuilder<'ReturnType>(name, false)
 
+    /// Computation expression that creates a static method by binding its arguments with let!...and!.
     let dynStaticMethod returnType name = MethodBuilder(name, returnType, true)
 
+    /// Computation expression that creates a static method by binding its arguments with let!...and!.
     let staticMethod<'ReturnType> name = MethodBuilder<'ReturnType>(name, true)
 
+    /// Computation expression that creates a constructor by binding its arguments with let!...and!.
     let constructor = ConstructorBuilder()
