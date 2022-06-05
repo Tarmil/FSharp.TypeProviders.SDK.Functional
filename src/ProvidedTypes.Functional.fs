@@ -37,35 +37,35 @@ type FunctionalProvider(config,
 
 /// A set of static parameters for a type provider.
 type ProvidedStaticParameters<'T> =
-    { Parameters: ProvidedStaticParameter list
-      Extract: obj list -> 'T * obj list }
+    { parameters: ProvidedStaticParameter list
+      extract: obj list -> 'T * obj list }
 
 module ProvidedStaticParameters =
 
     /// Create a mandatory static parameter with the given name.
     let mandatory<'T> name =
-        { Parameters = [ ProvidedStaticParameter(name, typeof<'T>) ]
-          Extract = function
+        { parameters = [ ProvidedStaticParameter(name, typeof<'T>) ]
+          extract = function
             | :? 'T as x :: rest -> x, rest
             | args -> failwithf "Invalid args: %A" args }
 
     /// Create an optional static parameter with the given name and default value.
     let optional<'T> name (defaultValue: 'T) =
-        { Parameters = [ ProvidedStaticParameter(name, typeof<'T>, box defaultValue) ]
-          Extract = function
+        { parameters = [ ProvidedStaticParameter(name, typeof<'T>, box defaultValue) ]
+          extract = function
             | :? 'T as x :: rest -> x, rest
             | args -> failwithf "Invalid args: %A" args }
-        
+
     /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
-        { Parameters = []
-          Extract = fun args -> x, args }
-        
+        { parameters = []
+          extract = fun args -> x, args }
+
     /// Map the value extracted from a set of static parameters.
     let map<'T, 'U> (f: 'T -> 'U) (p: ProvidedStaticParameters<'T>) =
-        { Parameters = p.Parameters
-          Extract = fun args ->
-            let x, rest = p.Extract args
+        { parameters = p.parameters
+          extract = fun args ->
+            let x, rest = p.extract args
             f x, rest }
 
     /// Combine two sets of static parameters.
@@ -74,65 +74,113 @@ module ProvidedStaticParameters =
             (p1: ProvidedStaticParameters<'T>)
             (p2: ProvidedStaticParameters<'U>)
             : ProvidedStaticParameters<'V> =
-        { Parameters = p1.Parameters @ p2.Parameters
-          Extract = fun args ->
-            let x1, rest = p1.Extract args
-            let x2, rest = p2.Extract rest
+        { parameters = p1.parameters @ p2.parameters
+          extract = fun args ->
+            let x1, rest = p1.extract args
+            let x2, rest = p2.extract rest
             f x1 x2, rest }
+
+/// Description of a provided method parameter.
+type ProvidedParameterDescription<'T> =
+    { name: string
+      isOut: bool
+      defaultValue: 'T option
+      isParamArray: bool
+      isReflectedDefinition: bool
+      customAttributes: CustomAttributeData list }
+
+/// Description of a provided method parameter.
+type ProvidedParameterDescription =
+    { name: string
+      parameterType: Type
+      isOut: bool
+      defaultValue: obj option
+      isParamArray: bool
+      isReflectedDefinition: bool
+      customAttributes: CustomAttributeData list }
 
 /// A set of parameters for a provided method.
 type ProvidedParameters<'T> =
-    { Parameters: ProvidedParameter list
-      Extract: Expr list -> 'T * Expr list }
+    { parameters: ProvidedParameter list
+      extract: Expr list -> 'T * Expr list }
 
 module ProvidedParameters =
 
-    let mandatory<'T> name =
-        { Parameters = [ ProvidedParameter(name, typeof<'T>) ]
-          Extract = function
-              | e :: rest -> Expr.Cast<'T> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+    /// Create a mandatory parameter with the given name.
+    let mandatory<'T> name : ProvidedParameterDescription<'T> =
+        { name = name
+          isOut = false
+          defaultValue = None
+          isParamArray = false
+          isReflectedDefinition = false
+          customAttributes = [] }
 
+    /// Create a mandatory parameter with the given name.
     let dynMandatory ty name =
-        { Parameters = [ ProvidedParameter(name, ty) ]
-          Extract = function
-              | e :: rest -> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+        { name = name
+          parameterType = ty
+          isOut = false
+          defaultValue = None
+          isParamArray = false
+          isReflectedDefinition = false
+          customAttributes = [] }
 
+    /// Create an optional parameter with the given name and default value.
     let optional<'T> name (defaultValue: 'T) =
-        { Parameters = [ ProvidedParameter(name, typeof<'T>, optionalValue = box defaultValue) ]
-          Extract = function
+        { mandatory<'T> name with
+            defaultValue = Some defaultValue }
+
+    /// Create an optional parameter with the given name and default value.
+    let dynOptional ty name defaultValue =
+        { dynMandatory ty name with
+            defaultValue = Some defaultValue }
+
+    /// Create a "this" parameter for an instance method.
+    let this<'T> =
+        { parameters = []
+          extract = function
               | e :: rest -> Expr.Cast<'T> e, rest
               | args -> failwithf "Invalid args: %A" args }
 
-    let dynOptional ty name defaultValue =
-        { Parameters = [ ProvidedParameter(name, ty, optionalValue = box defaultValue) ]
-          Extract = function
+    /// Create a "this" parameter for an instance method.
+    let dynThis =
+        { parameters = []
+          extract = function
               | e :: rest -> e, rest
               | args -> failwithf "Invalid args: %A" args }
 
-    let this<'T> =
-        { Parameters = []
-          Extract = function
+    let single (descr: ProvidedParameterDescription<'T>) =
+        let p = ProvidedParameter(descr.name, typeof<'T>, descr.isOut,
+            ?optionalValue = Option.map box descr.defaultValue,
+            IsParamArray = descr.isParamArray,
+            IsReflectedDefinition = descr.isReflectedDefinition)
+        for a in descr.customAttributes do p.AddCustomAttribute(a)
+        { parameters = [ p ]
+          extract = function
               | e :: rest -> Expr.Cast<'T> e, rest
               | args -> failwithf "Invalid args: %A" args }
 
-    let dynThis =
-        { Parameters = []
-          Extract = function
+    let dynSingle descr =
+        let p = ProvidedParameter(descr.name, descr.parameterType, descr.isOut,
+            ?optionalValue = descr.defaultValue,
+            IsParamArray = descr.isParamArray,
+            IsReflectedDefinition = descr.isReflectedDefinition)
+        for a in descr.customAttributes do p.AddCustomAttribute(a)
+        { parameters = [ p ]
+          extract = function
               | e :: rest -> e, rest
               | args -> failwithf "Invalid args: %A" args }
 
     /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
-        { Parameters = []
-          Extract = fun args -> x, args }
+        { parameters = []
+          extract = fun args -> x, args }
 
     /// Map the value extracted from a set of static parameters.
     let map<'T, 'U> (f: 'T -> 'U) (p: ProvidedParameters<'T>) =
-        { Parameters = p.Parameters
-          Extract = fun args ->
-            let x, rest = p.Extract args
+        { parameters = p.parameters
+          extract = fun args ->
+            let x, rest = p.extract args
             f x, rest }
 
     /// Combine two sets of static parameters.
@@ -141,13 +189,17 @@ module ProvidedParameters =
             (p1: ProvidedParameters<'T>)
             (p2: ProvidedParameters<'U>)
             : ProvidedParameters<'V> =
-        { Parameters = p1.Parameters @ p2.Parameters
-          Extract = fun args ->
-            let x1, rest = p1.Extract args
-            let x2, rest = p2.Extract rest
+        { parameters = p1.parameters @ p2.parameters
+          extract = fun args ->
+            let x1, rest = p1.extract args
+            let x2, rest = p2.extract rest
             f x1 x2, rest }
 
     type ParametersBuilder() =
+        member _.Source(p: ProvidedParameterDescription<'T>) = single p
+        member _.Source(p: ProvidedParameterDescription) = dynSingle p
+        member _.Source(p: ProvidedParameters<'T>) = p
+
         member _.MergeSources(p1, p2) =
             map2 (fun x1 x2 -> (x1, x2)) p1 p2
 
@@ -174,16 +226,16 @@ module ProvidedTypeDefinition =
 
         member _.Run(p: ProvidedStaticParameters<string -> ProvidedTypeDefinition>) =
             fun (ty: ProvidedTypeDefinition) ->
-                ty.DefineStaticParameters(p.Parameters, fun tyName args ->
-                    let build, _ = p.Extract (List.ofArray args)
+                ty.DefineStaticParameters(p.parameters, fun tyName args ->
+                    let build, _ = p.extract (List.ofArray args)
                     build tyName)
                 ty
 
         member _.Run(p: ProvidedStaticParameters<ProvidedTypeDefinition -> ProvidedTypeDefinition>) =
             fun (ty: ProvidedTypeDefinition) ->
-                ty.DefineStaticParameters(p.Parameters, fun tyName args ->
+                ty.DefineStaticParameters(p.parameters, fun tyName args ->
                     let ty = ProvidedTypeDefinition(ty.Assembly, ty.Namespace, tyName, None)
-                    let build, _ = p.Extract (List.ofArray args)
+                    let build, _ = p.extract (List.ofArray args)
                     build ty)
                 ty
 
@@ -222,21 +274,21 @@ module ProvidedMethod =
         inherit ProvidedParameters.ParametersBuilder()
 
         member _.Run(p: ProvidedParameters<Expr>) =
-            ProvidedMethod(name, p.Parameters, returnType, isStatic = isStatic,
-                           invokeCode = fun args -> p.Extract args |> fst)
+            ProvidedMethod(name, p.parameters, returnType, isStatic = isStatic,
+                           invokeCode = fun args -> p.extract args |> fst)
 
     type MethodBuilder<'ReturnType>(name: string, isStatic: bool) =
         inherit ProvidedParameters.ParametersBuilder()
 
         member _.Run(p: ProvidedParameters<Expr<'ReturnType>>) =
-            ProvidedMethod(name, p.Parameters, typeof<'ReturnType>, isStatic = isStatic,
-                           invokeCode = fun args -> p.Extract args |> fst :> Expr)
+            ProvidedMethod(name, p.parameters, typeof<'ReturnType>, isStatic = isStatic,
+                           invokeCode = fun args -> p.extract args |> fst :> Expr)
 
     type ConstructorBuilder() =
         inherit ProvidedParameters.ParametersBuilder()
 
         member _.Run(p: ProvidedParameters<Expr<unit>>) =
-            ProvidedConstructor(p.Parameters, fun args -> p.Extract args |> fst :> Expr)
+            ProvidedConstructor(p.parameters, fun args -> p.extract args |> fst :> Expr)
 
     /// Computation expression that creates an instance method by binding its arguments with let!...and!.
     let dynInstanceMethod returnType name = MethodBuilder(name, returnType, false)
