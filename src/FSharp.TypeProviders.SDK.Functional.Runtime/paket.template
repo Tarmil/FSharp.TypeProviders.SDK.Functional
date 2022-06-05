@@ -1,0 +1,36 @@
+type file
+id FSharp.TypeProviders.SDK.Functional
+authors
+    Steffen Forkmann, Gustavo Guerra, JohnDoeKyrgyz, Don Syme
+owners
+    Steffen Forkmann, Gustavo Guerra, JohnDoeKyrgyz, Don Syme
+projectUrl
+    https://github.com/fsprojects/FSharp.TypeProviders.SDK.Functional
+iconUrl
+    https://raw.githubusercontent.com/fsprojects/FSharp.TypeProviders.SDK.Functional/master/docs/files/img/logo.png
+licenseUrl
+    https://github.com/fsprojects/FSharp.TypeProviders.SDK.Functional/blob/master/LICENSE.txt
+requireLicenseAcceptance
+    false
+tags
+    F# fsharp typeproviders FSharp.TypeProviders.SDK.Functional
+summary
+    This library is for the .NET platform implementing FSharp.TypeProviders.SDK.Functional.
+description
+    This library is for the .NET platform implementing FSharp.TypeProviders.SDK.Functional.
+tags
+    F# fsharp typeproviders FSharp.TypeProviders.SDK.Functional
+files
+    bin/Release/netstandard2.0/FSharp.TypeProviders.SDK.Functional.Runtime.* ==> lib/netstandard2.0
+    bin/Release/typeproviders/fsharp41/netstandard2.0/*.dll ==> typeproviders/fsharp41/netstandard2.0
+references
+    FSharp.TypeProviders.SDK.Functional.Runtime.dll
+dependencies
+  FSharp.Core >= LOCKEDVERSION
+
+# put any package references here
+#  Some.Package
+#  framework: net5.0
+#    System.Text.Encoding.CodePages >= LOCKEDVERSION
+#  framework: netstandard2.0
+#    System.Text.Encoding.CodePages >= LOCKEDVERSION

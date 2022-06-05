@@ -1,0 +1,9 @@
+.paket/
+paket-files/
+packages/
+**/[Oo]bj/
+**/[Bb]in/
+.vs/
+.ionide/
+*.user
+.idea/
