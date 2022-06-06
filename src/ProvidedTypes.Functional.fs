@@ -104,6 +104,14 @@ type ProvidedParameters<'T> =
     { parameters: ProvidedParameter list
       extract: Expr list -> 'T * Expr list }
 
+let private coerce<'T> (e: Expr) =
+    if e.Type = typeof<'T> then e else Expr.Coerce(e, typeof<'T>)
+    |> Expr.Cast<'T>
+
+let private extractOneArgWith f = function
+    | e :: rest -> f e, rest
+    | args -> failwithf "Invalid args: %A" args
+
 module ProvidedParameters =
 
     /// Create a mandatory parameter with the given name.
@@ -135,13 +143,7 @@ module ProvidedParameters =
         { dynMandatory ty name with
             defaultValue = Some defaultValue }
 
-    let private coerce<'T> (e: Expr) =
-        if e.Type = typeof<'T> then e else Expr.Coerce(e, typeof<'T>)
-        |> Expr.Cast<'T>
 
-    let private extractOneArgWith f = function
-        | e :: rest -> f e, rest
-        | args -> failwithf "Invalid args: %A" args
 
     /// Create a "this" parameter for an instance method.
     let this<'T> =
@@ -304,3 +306,111 @@ module ProvidedMethod =
 
     /// Computation expression that creates a constructor by binding its arguments with let!...and!.
     let constructor = ConstructorBuilder()
+
+type ProvidedPropertyDescription =
+    { get: unit -> Expr
+      set: Expr -> Expr<unit> }
+
+type ProvidedPropertyDescription<'T> =
+    { get: unit -> Expr<'T>
+      set: Expr<'T> -> Expr<unit> }
+
+module ProvidedProperty =
+
+    type IndexerGetBuilder(name: string, propertyType: Type, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<Expr>) =
+            ProvidedProperty(name, propertyType, isStatic = isStatic,
+                indexParameters = p.parameters,
+                getterCode = fun args -> p.extract args |> fst)
+
+    type IndexerGetBuilder<'PropertyType>(name: string, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<Expr<'PropertyType>>) =
+            ProvidedProperty(name, typeof<'PropertyType>, isStatic = isStatic,
+                indexParameters = p.parameters,
+                getterCode = fun args -> p.extract args |> fst :> Expr)
+
+    type IndexerSetBuilder(name: string, propertyType: Type, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<Expr -> Expr<unit>>) =
+            ProvidedProperty(name, propertyType, isStatic = isStatic,
+                indexParameters = p.parameters,
+                setterCode = fun args ->
+                    let f, args = p.extract args
+                    let value, _ = extractOneArgWith id args
+                    f value :> Expr)
+
+    type IndexerSetBuilder<'PropertyType>(name: string, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<Expr<'PropertyType> -> Expr<unit>>) =
+            ProvidedProperty(name, typeof<'PropertyType>, isStatic = isStatic,
+                indexParameters = p.parameters,
+                setterCode = fun args ->
+                    let f, args = p.extract args
+                    let value, _ = extractOneArgWith coerce<'PropertyType> args
+                    f value :> Expr)
+
+    type IndexerGetSetBuilder(name: string, propertyType: Type, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<ProvidedPropertyDescription>) =
+            ProvidedProperty(name, propertyType, isStatic = isStatic,
+                indexParameters = p.parameters,
+                getterCode = (fun args -> (p.extract args |> fst).get()),
+                setterCode = fun args ->
+                    let f, args = p.extract args
+                    let value, _ = extractOneArgWith id args
+                    f.set value :> Expr)
+
+    type IndexerGetSetBuilder<'PropertyType>(name: string, isStatic: bool) =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<ProvidedPropertyDescription<'PropertyType>>) =
+            ProvidedProperty(name, typeof<'PropertyType>, isStatic = isStatic,
+                indexParameters = p.parameters,
+                getterCode = (fun args -> (p.extract args |> fst).get() :> Expr),
+                setterCode = fun args ->
+                    let f, args = p.extract args
+                    let value, _ = extractOneArgWith coerce<'PropertyType> args
+                    f.set value :> Expr)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynInstanceIndexerGet returnType name = IndexerGetBuilder(name, returnType, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynStaticIndexerGet returnType name = IndexerGetBuilder(name, returnType, true)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let instanceIndexerGet<'ReturnType> name = IndexerGetBuilder<'ReturnType>(name, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let staticIndexerGet<'ReturnType> name = IndexerGetBuilder<'ReturnType>(name, true)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynInstanceIndexerSet returnType name = IndexerSetBuilder(name, returnType, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynStaticIndexerSet returnType name = IndexerSetBuilder(name, returnType, true)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let instanceIndexerSet<'ReturnType> name = IndexerSetBuilder<'ReturnType>(name, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let staticIndexerSet<'ReturnType> name = IndexerSetBuilder<'ReturnType>(name, true)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynInstanceIndexerGetSet returnType name = IndexerGetSetBuilder(name, returnType, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let dynStaticIndexerGetSet returnType name = IndexerGetSetBuilder(name, returnType, true)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let instanceIndexerGetSet<'ReturnType> name = IndexerGetSetBuilder<'ReturnType>(name, false)
+
+    /// Computation expression that creates an indexer by binding its arguments with let!...and!.
+    let staticIndexerGetSet<'ReturnType> name = IndexerGetSetBuilder<'ReturnType>(name, true)
