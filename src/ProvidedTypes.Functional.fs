@@ -135,19 +135,23 @@ module ProvidedParameters =
         { dynMandatory ty name with
             defaultValue = Some defaultValue }
 
+    let private coerce<'T> (e: Expr) =
+        if e.Type = typeof<'T> then e else Expr.Coerce(e, typeof<'T>)
+        |> Expr.Cast<'T>
+
+    let private extractOneArgWith f = function
+        | e :: rest -> f e, rest
+        | args -> failwithf "Invalid args: %A" args
+
     /// Create a "this" parameter for an instance method.
     let this<'T> =
         { parameters = []
-          extract = function
-              | e :: rest -> Expr.Cast<'T> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+          extract = extractOneArgWith coerce<'T> }
 
     /// Create a "this" parameter for an instance method.
     let dynThis =
         { parameters = []
-          extract = function
-              | e :: rest -> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+          extract = extractOneArgWith id }
 
     let single (descr: ProvidedParameterDescription<'T>) =
         let p = ProvidedParameter(descr.name, typeof<'T>, descr.isOut,
@@ -156,9 +160,7 @@ module ProvidedParameters =
             IsReflectedDefinition = descr.isReflectedDefinition)
         for a in descr.customAttributes do p.AddCustomAttribute(a)
         { parameters = [ p ]
-          extract = function
-              | e :: rest -> Expr.Cast<'T> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+          extract = extractOneArgWith coerce<'T> }
 
     let dynSingle descr =
         let p = ProvidedParameter(descr.name, descr.parameterType, descr.isOut,
@@ -167,9 +169,7 @@ module ProvidedParameters =
             IsReflectedDefinition = descr.isReflectedDefinition)
         for a in descr.customAttributes do p.AddCustomAttribute(a)
         { parameters = [ p ]
-          extract = function
-              | e :: rest -> e, rest
-              | args -> failwithf "Invalid args: %A" args }
+          extract = extractOneArgWith id }
 
     /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
