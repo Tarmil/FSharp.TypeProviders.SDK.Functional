@@ -56,6 +56,16 @@ module ProvidedStaticParameters =
             | :? 'T as x :: rest -> x, rest
             | args -> failwithf "Invalid args: %A" args }
 
+    /// Add XML documentation information to this provided parameter.
+    let addXmlDoc doc (p: ProvidedStaticParameters<'T>) =
+        p.parameters |> List.iter (fun p -> p.AddXmlDoc(doc))
+        p
+
+    /// Add XML documentation information to this provided parameter, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedStaticParameters<'T>) =
+        p.parameters |> List.iter (fun p -> p.AddXmlDocDelayed(doc))
+        p
+
     /// Create an empty set of static parameters.
     let ret<'T> (x: 'T) =
         { parameters = []
@@ -80,6 +90,12 @@ module ProvidedStaticParameters =
             let x2, rest = p2.extract rest
             f x1 x2, rest }
 
+type IProvidedParameterDescription<'This when 'This :> IProvidedParameterDescription<'This>> =
+    abstract WithIsOut : bool -> 'This
+    abstract WithIsParamArray : bool -> 'This
+    abstract WithIsReflectedDefinition : bool -> 'This
+    abstract WithCustomAttribute : CustomAttributeData -> 'This
+
 /// Description of a provided method parameter.
 type ProvidedParameterDescription<'T> =
     { name: string
@@ -88,6 +104,12 @@ type ProvidedParameterDescription<'T> =
       isParamArray: bool
       isReflectedDefinition: bool
       customAttributes: CustomAttributeData list }
+
+    interface IProvidedParameterDescription<ProvidedParameterDescription<'T>> with
+        member this.WithCustomAttribute(v) = { this with customAttributes = v :: this.customAttributes }
+        member this.WithIsOut(v) = { this with isOut = v }
+        member this.WithIsParamArray(v) = { this with isParamArray = v }
+        member this.WithIsReflectedDefinition(v) = { this with isReflectedDefinition = v }
 
 /// Description of a provided method parameter.
 type ProvidedParameterDescription =
@@ -98,6 +120,12 @@ type ProvidedParameterDescription =
       isParamArray: bool
       isReflectedDefinition: bool
       customAttributes: CustomAttributeData list }
+
+    interface IProvidedParameterDescription<ProvidedParameterDescription> with
+        member this.WithCustomAttribute(v) = { this with customAttributes = v :: this.customAttributes }
+        member this.WithIsOut(v) = { this with isOut = v }
+        member this.WithIsParamArray(v) = { this with isParamArray = v }
+        member this.WithIsReflectedDefinition(v) = { this with isReflectedDefinition = v }
 
 /// A set of parameters for a provided method.
 type ProvidedParameters<'T> =
@@ -143,7 +171,17 @@ module ProvidedParameters =
         { dynMandatory ty name with
             defaultValue = Some defaultValue }
 
+    /// Indicates if the parameter is marked as ParamArray.
+    let isParamArray v (p: #IProvidedParameterDescription<_>) =
+        p.WithIsParamArray(v)
 
+    /// Indicates if the parameter is marked as ReflectedDefinition.
+    let isReflectedDefinition v (p: #IProvidedParameterDescription<_>) =
+        p.WithIsReflectedDefinition(v)
+
+    /// Add a custom attribute to the provided parameter.
+    let addCustomAttribute a (p: #IProvidedParameterDescription<_>) =
+        p.WithCustomAttribute(a)
 
     /// Create a "this" parameter for an instance method.
     let this<'T> =
@@ -259,9 +297,69 @@ module ProvidedTypeDefinition =
         ty.AddMembersDelayed items
         ty
 
+    /// Add the given type as an implemented interface.
+    let addInterfaceImplementation intf (ty: ProvidedTypeDefinition) =
+        ty.AddInterfaceImplementation(intf)
+        ty
+
+    /// Add the given type as an implemented interface.
+    let addInterfaceImplementationsDelayed intf (ty: ProvidedTypeDefinition) =
+        ty.AddInterfaceImplementationsDelayed(intf)
+        ty
+
+    /// Specifies that the given method body implements the given method declaration.
+    let addMethodOverride methodBody methodDeclaration (ty: ProvidedTypeDefinition) =
+        ty.DefineMethodOverride(methodBody, methodDeclaration)
+        ty
+
+    /// Specifies that the given method body implements the given method declaration.
+    let addMethodOverridesDelayed overrides (ty: ProvidedTypeDefinition) =
+        ty.DefineMethodOverridesDelayed(overrides)
+        ty
+
     /// Add a member to a ProvidedTypeDefinition, delaying computation of the members until required by the compilation context.
     let addMemberDelayed (items: unit -> #MemberInfo) (ty: ProvidedTypeDefinition) =
         ty.AddMemberDelayed items
+        ty
+
+    /// Add XML documentation information to this provided type definition.
+    let addXmlDoc doc (p: ProvidedTypeDefinition) =
+        p.AddXmlDoc(doc)
+        p
+
+    /// Add XML documentation information to this provided type definition, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedTypeDefinition) =
+        p.AddXmlDocDelayed(doc)
+        p
+
+    /// Add XML documentation information to this provided type definition, where the documentation is re-computed  every time it is required.
+    let addXmlDocComputed doc (p: ProvidedTypeDefinition) =
+        p.AddXmlDocComputed(doc)
+        p
+
+    /// Add definition location information to the provided type definition.
+    let addDefinitionLocation line column filePath (p: ProvidedTypeDefinition) =
+        p.AddDefinitionLocation(line, column, filePath)
+        p
+
+    /// Add a custom attribute to the provided type definition.
+    let addCustomAttribute attr (p: ProvidedTypeDefinition) =
+        p.AddCustomAttribute(attr)
+        p
+
+    /// Add a 'Obsolete' attribute to this provided type definition.
+    let addObsoleteAttribute message isError (c: ProvidedTypeDefinition) =
+        c.AddObsoleteAttribute(message, isError)
+        c
+
+    /// Set the attributes on the provided type. This fully replaces the default TypeAttributes.
+    let setAttributes attrs (p: ProvidedTypeDefinition) =
+        p.SetAttributes(attrs)
+        p
+
+    /// When creating a non-erased type provider, add the type definition to a provided assembly.
+    let addToProvidedAssembly (asm: ProvidedAssembly) (ty: ProvidedTypeDefinition) =
+        asm.AddTypes([ty])
         ty
 
 module ProvidedField =
@@ -286,12 +384,6 @@ module ProvidedMethod =
             ProvidedMethod(name, p.parameters, typeof<'ReturnType>, isStatic = isStatic,
                            invokeCode = fun args -> p.extract args |> fst :> Expr)
 
-    type ConstructorBuilder() =
-        inherit ProvidedParameters.ParametersBuilder()
-
-        member _.Run(p: ProvidedParameters<Expr<unit>>) =
-            ProvidedConstructor(p.parameters, fun args -> p.extract args |> fst :> Expr)
-
     /// Computation expression that creates an instance method by binding its arguments with let!...and!.
     let dynInstanceMethod returnType name = MethodBuilder(name, returnType, false)
 
@@ -304,8 +396,117 @@ module ProvidedMethod =
     /// Computation expression that creates a static method by binding its arguments with let!...and!.
     let staticMethod<'ReturnType> name = MethodBuilder<'ReturnType>(name, true)
 
+    /// Add a 'Obsolete' attribute to this provided method.
+    let addObsoleteAttribute message isError (c: ProvidedMethod) =
+        c.AddObsoleteAttribute(message, isError)
+        c
+
+    /// Add XML documentation information to this provided method.
+    let addXmlDoc doc (p: ProvidedMethod) =
+        p.AddXmlDoc(doc)
+        p
+
+    /// Add XML documentation information to this provided method, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedMethod) =
+        p.AddXmlDocDelayed(doc)
+        p
+
+    /// Add XML documentation information to this provided method, where the documentation is re-computed  every time it is required.
+    let addXmlDocComputed doc (p: ProvidedMethod) =
+        p.AddXmlDocComputed(doc)
+        p
+
+    /// Add method attributes to the method. By default these are simple 'MethodAttributes.Public'.
+    let addMethodAttrs attrs (p: ProvidedMethod) =
+        p.AddMethodAttrs(attrs)
+        p
+
+    /// Set the method attributes of the method. By default these are simple 'MethodAttributes.Public'.
+    let setMethodAttrs attrs (p: ProvidedMethod) =
+        p.SetMethodAttrs(attrs)
+        p
+
+    /// Add definition location information to the provided method definition.
+    let addDefinitionLocation line column filePath (p: ProvidedMethod) =
+        p.AddDefinitionLocation(line, column, filePath)
+        p
+
+    /// Add a custom attribute to the provided method definition.
+    let addCustomAttribute attr (p: ProvidedMethod) =
+        p.AddCustomAttribute(attr)
+        p
+
+    type AddStaticParametersBuilder() =
+        member _.MergeSources(p1, p2) =
+            ProvidedStaticParameters.map2 (fun x1 x2 -> (x1, x2)) p1 p2
+
+        member _.BindReturn(p, f) =
+            ProvidedStaticParameters.map f p
+
+        member _.Return(x) =
+            ProvidedStaticParameters.ret x
+
+        member _.Run(p: ProvidedStaticParameters<string -> ProvidedMethod>) =
+            fun (ty: ProvidedMethod) ->
+                ty.DefineStaticParameters(p.parameters, fun methName args ->
+                    let build, _ = p.extract (List.ofArray args)
+                    build methName)
+                ty
+
+    /// Computation expression that adds static parameters to a ProvidedMethod by binding them with let!...and!.
+    let addStaticParameters = AddStaticParametersBuilder()
+
+module ProvidedConstructor =
+
+    type ConstructorBuilder() =
+        inherit ProvidedParameters.ParametersBuilder()
+
+        member _.Run(p: ProvidedParameters<Expr<unit>>) =
+            ProvidedConstructor(p.parameters, fun args -> p.extract args |> fst :> Expr)
+
     /// Computation expression that creates a constructor by binding its arguments with let!...and!.
     let constructor = ConstructorBuilder()
+
+    /// Add a 'Obsolete' attribute to this provided constructor.
+    let addObsoleteAttribute message isError (c: ProvidedConstructor) =
+        c.AddObsoleteAttribute(message, isError)
+        c
+
+    /// Add XML documentation information to this provided constructor.
+    let addXmlDoc doc (p: ProvidedConstructor) =
+        p.AddXmlDoc(doc)
+        p
+
+    /// Add XML documentation information to this provided constructor, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedConstructor) =
+        p.AddXmlDocDelayed(doc)
+        p
+
+    /// Add XML documentation information to this provided constructor, where the documentation is re-computed  every time it is required.
+    let addXmlDocComputed doc (p: ProvidedConstructor) =
+        p.AddXmlDocComputed(doc)
+        p
+
+    /// Set the target and arguments of the base constructor call. Only used for generated types.
+    let baseConstructorCall call (p: ProvidedConstructor) =
+        p.BaseConstructorCall <- call
+        p
+
+    /// Set a flag indicating that the constructor acts like an F# implicit constructor, so the
+    /// parameters of the constructor become fields and can be accessed using Expr.GlobalVar with the
+    /// same name.
+    let isImplicitConstructor v (p: ProvidedConstructor) =
+        p.IsImplicitConstructor <- v
+        p
+
+    let isTypeInitializer v (p: ProvidedConstructor) =
+        p.IsTypeInitializer <- v
+        p
+
+    /// Add definition location information to the provided constructor.
+    let addDefinitionLocation line column filePath (p: ProvidedConstructor) =
+        p.AddDefinitionLocation(line, column, filePath)
+        p
 
 type ProvidedPropertyDescription =
     { get: unit -> Expr
@@ -414,3 +615,55 @@ module ProvidedProperty =
 
     /// Computation expression that creates an indexer by binding its arguments with let!...and!.
     let staticIndexerGetSet<'ReturnType> name = IndexerGetSetBuilder<'ReturnType>(name, true)
+
+    /// Add a 'Obsolete' attribute to this provided property.
+    let addObsoleteAttribute message isError (c: ProvidedProperty) =
+        c.AddObsoleteAttribute(message, isError)
+        c
+
+    /// Add XML documentation information to this provided property.
+    let addXmlDoc doc (p: ProvidedProperty) =
+        p.AddXmlDoc(doc)
+        p
+
+    /// Add XML documentation information to this provided property, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedProperty) =
+        p.AddXmlDocDelayed(doc)
+        p
+
+    /// Add XML documentation information to this provided property, where the documentation is re-computed  every time it is required.
+    let addXmlDocComputed doc (p: ProvidedProperty) =
+        p.AddXmlDocComputed(doc)
+        p
+
+    /// Add definition location information to the provided property.
+    let addDefinitionLocation line column filePath (p: ProvidedProperty) =
+        p.AddDefinitionLocation(line, column, filePath)
+        p
+
+    /// Add a custom attribute to the provided property.
+    let addCustomAttribute attr (p: ProvidedProperty) =
+        p.AddCustomAttribute(attr)
+        p
+
+module ProvidedEvent =
+
+    /// Add XML documentation information to this provided event.
+    let addXmlDoc doc (p: ProvidedEvent) =
+        p.AddXmlDoc(doc)
+        p
+
+    /// Add XML documentation information to this provided event, where the computation of the documentation is delayed until necessary.
+    let addXmlDocDelayed doc (p: ProvidedEvent) =
+        p.AddXmlDocDelayed(doc)
+        p
+
+    /// Add XML documentation information to this provided event, where the documentation is re-computed  every time it is required.
+    let addXmlDocComputed doc (p: ProvidedEvent) =
+        p.AddXmlDocComputed(doc)
+        p
+
+    /// Add definition location information to the provided event.
+    let addDefinitionLocation line column filePath (p:ProvidedEvent) =
+        p.AddDefinitionLocation(line, column, filePath)
+        p
